@@ -1,0 +1,21 @@
+# Normalización de fin de línea.
+# Sin esto, Git avisa en cada archivo y el repositorio puede terminar con
+# mezcla de LF y CRLF según quién lo clone.
+* text=auto eol=lf
+
+# Binarios: nunca normalizar (rompería el archivo).
+*.wasm binary
+*.glb  binary
+*.mind binary
+*.woff2 binary
+*.png  binary
+
+# El .mind y los .glb son artefactos compilados: no tiene sentido
+# intentar diferenciarlos como texto.
+*.wasm -diff
+*.glb  -diff
+*.mind -diff
+
+# Texto que debe ir siempre con CRLF (scripts de Windows, si se agregan).
+*.bat text eol=crlf
+*.cmd text eol=crlf

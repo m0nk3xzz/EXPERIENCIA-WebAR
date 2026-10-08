@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+
+    <!-- Content Security Policy.
+         No se puede poner en vercel.json: varias directivas de CSP no
+         admiten la lista separada por comas que exige ese formato de
+         headers. Acá queda además en el mismo archivo que el HTML, así
+         que se audita junto con lo que protege.
+
+         Notas de cada concesión:
+         - script-src 'wasm-unsafe-eval': MediaPipe compila WASM en el
+           hilo principal y en un worker.
+         - worker-src blob: MediaPipe crea su worker desde un Blob.
+         - connect-src generativelanguage.googleapis.com (https y wss):
+           el cliente abre la sesión Live de Gemini con el token efímero.
+         - style-src 'unsafe-inline': hay estilos inline en este HTML y
+           MindAR/Three.js escriben style en el DOM. Es la única concesión
+           pendiente; el resto de la política sí es estricta.
+         - frame-ancestors 'none' duplica X-Frame-Options para navegadores
+           que ya ignoran este último. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               base-uri 'none';
+               object-src 'none';
+               frame-ancestors 'none';
+               form-action 'none';
+               script-src 'self' 'wasm-unsafe-eval';
+               worker-src 'self' blob:;
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' data: blob:;
+               media-src 'self' blob:;
+               font-src 'self';
+               connect-src 'self' https://generativelanguage.googleapis.com wss://generativelanguage.googleapis.com"
+    />
+
+    <!-- Sin maximum-scale/user-scalable: el zoom queda habilitado
+         (accesibilidad). El zoom automático de iOS al enfocar el input
+         lo evita su font-size de 16px (.kb-bar input en style.css). -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+
+    <!-- theme.js reemplaza el título con el nombre del museo activo. -->
+    <title>Museo</title>
+
+    <!-- Barra de estado del navegador con el tono del museo (theme.js). -->
+    <meta name="theme-color" content="#15110E" />
+
+    <!-- Favicon del sistema de diseño: la vasija, en tinta y latón. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Tipografías del sistema (Newsreader + Hanken Grotesk),
+         self-hosted en /public/fonts: sin requests a terceros. -->
+    <link rel="stylesheet" href="/fonts/fonts.css" />
+  </head>
+
+  <body>
+    <!-- ===== Sprite de iconos y siluetas del sistema de diseño ===== -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <symbol id="i-globe" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></g></symbol>
+      <symbol id="i-card" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 10l3.5-3.2 3.5 3.2-3.5 3.2z"/><path d="M8.5 17h7"/></g></symbol>
+      <symbol id="i-vessel" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6M9.5 4c0 2.2-3.5 3.6-3.5 8 0 4 2.5 7 6 7s6-3 6-7c0-4.4-3.5-5.8-3.5-8"/><path d="M6.3 12.5c3.5 1.2 7.5 1.2 11.4 0"/></g></symbol>
+      <symbol id="i-hand" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V6.5a1.5 1.5 0 0 1 3 0V11M11 11V4.5a1.5 1.5 0 0 1 3 0V11M14 11V6.5a1.5 1.5 0 0 1 3 0V14c0 4-2.5 7-6 7-2.4 0-4-1-5.4-3L3 13.6a1.5 1.5 0 0 1 2.5-1.6L8 14"/></g></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></g></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.6a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1.1.9-1.1 1.7M12 17h.01"/></g></symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/></g></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></g></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></g></symbol>
+      <symbol id="i-move" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></g></symbol>
+      <symbol id="i-roty" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="12" rx="8" ry="3.6"/><path d="M20 12l-2.2-2.2M20 12l-2.2 2.2"/></g></symbol>
+      <symbol id="i-rotx" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="12" rx="3.6" ry="8"/><path d="M12 4l-2.2 2.2M12 4l2.2 2.2"/></g></symbol>
+      <symbol id="i-scale" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></g></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></g></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></g></symbol>
+      <symbol id="i-camoff" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M9.5 5H15l1.5 2H20a1 1 0 0 1 1 1v9M3 8a1 1 0 0 1 1-1h1.5M3 8v9a1 1 0 0 0 1 1h13.5M12 9a3.5 3.5 0 0 1 3.4 4.3"/></g></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></g></symbol>
+      <symbol id="i-center" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="6.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/></g></symbol>
+
+      <!-- Siluetas guía de mano para la calibración. -->
+      <symbol id="h-open-ghost" viewBox="0 0 200 260"><g fill="none" stroke="currentColor" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"><path d="M78 214L58 188L44 164L32 142"/><path d="M80 150L76 110L74 84L72 62"/><path d="M102 146L102 100L102 70L102 44"/><path d="M124 152L128 110L130 84L132 62"/><path d="M144 164L154 132L160 112L166 94"/><polygon points="80,150 144,164 132,236 72,236" fill="currentColor"/></g></symbol>
+      <symbol id="h-fist-ghost" viewBox="0 0 200 260"><g fill="none" stroke="currentColor" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"><polygon points="76,150 146,162 134,236 72,236" fill="currentColor"/><path d="M74 214L66 192L84 176L100 170"/></g><g fill="currentColor"><circle cx="82" cy="146" r="14"/><circle cx="103" cy="140" r="14"/><circle cx="124" cy="144" r="14"/><circle cx="142" cy="154" r="13"/></g></symbol>
+    </svg>
+
+    <!-- Video de cámara + canvas de Three.js (MindAR los inyecta acá) -->
+    <div id="app"></div>
+
+    <!-- ================= 1 · PRESENTACIÓN ================= -->
+    <section id="s-intro" class="layer">
+      <div class="glow"></div>
+
+      <header class="topbar">
+        <div class="museum">
+          <span class="mark" id="museum-mark">M</span>
+          <span id="museum-name">Museo de ejemplo</span>
+        </div>
+        <button class="pill" id="lang-btn" type="button" data-i18n-attr="aria-label:lang.label">
+          <svg class="i"><use href="#i-globe" /></svg><span id="lang-label">ES</span>
+        </button>
+      </header>
+
+      <!-- home -->
+      <div class="view" id="intro-home">
+        <svg class="sigil" viewBox="0 0 160 130" aria-hidden="true">
+          <path class="corner" d="M6 26V8a2 2 0 0 1 2-2h18M134 6h18a2 2 0 0 1 2 2v18M154 104v18a2 2 0 0 1-2 2h-18M26 124H8a2 2 0 0 1-2-2v-18" />
+          <g transform="translate(20 4)">
+            <path class="draw" pathLength="1" d="M44 20C44 30 30 40 26 62C22 88 34 116 60 122C86 116 98 88 94 62C90 40 76 30 76 20" />
+            <ellipse class="draw" pathLength="1" cx="60" cy="20" rx="17" ry="5.5" />
+            <path class="draw" pathLength="1" d="M26.6 64Q60 78 93.4 64M25.2 74Q60 88 94.8 74" />
+          </g>
+        </svg>
+        <h3 class="display" data-i18n="intro.title"></h3>
+        <ul class="steps">
+          <li style="--si:0"><span class="ico"><svg class="i"><use href="#i-card" /></svg></span><span data-i18n="intro.step1"></span></li>
+          <li style="--si:1"><span class="ico"><svg class="i"><use href="#i-vessel" /></svg></span><span data-i18n="intro.step2"></span></li>
+          <li style="--si:2"><span class="ico"><svg class="i"><use href="#i-hand" /></svg></span><span data-i18n="intro.step3"></span></li>
+        </ul>
+        <div class="cta-zone">
+          <button class="btn primary" id="start-btn" type="button" data-i18n="intro.start"></button>
+          <p class="micro" data-i18n="intro.privacy"></p>
+        </div>
+      </div>
+
+      <!-- loading -->
+      <div class="view center" id="intro-loading" hidden>
+        <div class="ring-big">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="track" cx="60" cy="60" r="52" />
+            <circle class="prog" id="boot-ring" cx="60" cy="60" r="52" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" transform="rotate(-90 60 60)" />
+          </svg>
+          <b id="boot-percent">0%</b>
+        </div>
+        <h3 class="display sm" data-i18n="loading.title"></h3>
+        <ul class="checks">
+          <li id="check-camera"><span class="b"><svg class="i"><use href="#i-check" /></svg></span><span data-i18n="loading.camera"></span></li>
+          <li id="check-hands"><span class="b"><svg class="i"><use href="#i-check" /></svg></span><span data-i18n="loading.hands"></span></li>
+          <li id="check-catalog"><span class="b"><svg class="i"><use href="#i-check" /></svg></span><span data-i18n="loading.catalog"></span></li>
+        </ul>
+        <p class="micro" id="boot-note" data-i18n="loading.note"></p>
+      </div>
+
+      <!-- error -->
+      <div class="view center" id="intro-error" hidden>
+        <div class="err-ico pop-in"><svg class="i"><use href="#i-camoff" /></svg></div>
+        <h3 class="display" id="error-title" style="font-size:25px" data-i18n="error.camera.title"></h3>
+        <p id="error-body" style="margin:0;font-size:14px;color:color-mix(in srgb, var(--m-bone) 74%, transparent)" data-i18n="error.camera.body"></p>
+        <div class="stack">
+          <button class="btn primary" id="error-retry" type="button" data-i18n="error.retry"></button>
+          <button class="btn ghost" id="error-howto" type="button" data-i18n="error.howto"></button>
+        </div>
+        <p id="error-howto-text" data-i18n="error.howtoText" hidden></p>
+      </div>
+    </section>
+
+    <!-- ================= 2 · CALIBRACIÓN ================= -->
+    <section id="s-calibrate" class="layer" data-step="ready" hidden>
+      <div class="scrim-bottom"></div>
+
+        <!-- Sin animación de aparición: su visibilidad cambia por frame
+           de detección. El feedback suave lo dan el anillo y el dim de
+           la silueta (data-nohand). -->
+      <div class="det-pill" id="cal-pill-ok"><span class="dot"></span><span data-i18n="cal.detected"></span></div>
+      <div class="det-pill warn" id="cal-pill-warn" hidden><span class="dot"></span><span data-i18n="cal.notDetected"></span></div>
+
+      <div class="hand-stage">
+        <svg class="ring" viewBox="0 0 240 240" aria-hidden="true">
+          <circle class="track" cx="120" cy="120" r="112" />
+          <circle class="prog" id="cal-ring" cx="120" cy="120" r="112" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" />
+        </svg>
+        <!-- Siluetas siempre apiladas; data-step decide cuál se ve
+             (crossfade en style.css). -->
+        <svg class="hand" id="cal-hand-fist" viewBox="0 0 200 260" aria-hidden="true">
+          <use class="ghost" href="#h-fist-ghost" />
+        </svg>
+        <svg class="hand" id="cal-hand-open" viewBox="0 0 200 260" aria-hidden="true">
+          <use class="ghost" href="#h-open-ghost" />
+        </svg>
+        <div class="ok pop-in" id="cal-ok" hidden><svg class="i"><use href="#i-check" /></svg></div>
+      </div>
+
+      <div class="hint-chip panel" id="cal-hint" data-i18n="cal.hint" hidden></div>
+
+      <div class="sheet-bottom">
+        <div class="segs" id="cal-segs" aria-hidden="true">
+          <span class="seg" id="cal-seg1"><svg><use href="#i-check" /></svg><span data-i18n="cal.seg1"></span></span>
+          <span class="seg" id="cal-seg2"><svg><use href="#i-check" /></svg><span data-i18n="cal.seg2"></span></span>
+        </div>
+        <h3 class="display" id="cal-title"></h3>
+        <p id="cal-help"></p>
+        <button class="btn primary pop-in" id="calibration-start-btn" type="button" data-i18n="cal.ready.start" hidden></button>
+        <button class="linkbtn" id="calibration-skip-btn" type="button" data-i18n="cal.skip"></button>
+      </div>
+    </section>
+
+    <!-- ================= 3 · ESCANEO ================= -->
+    <section id="s-scan" class="layer" data-state="search" hidden>
+      <div class="reticle" aria-hidden="true">
+        <div class="in"><i></i><i></i><i></i><i></i></div>
+        <div class="scan-line"></div>
+      </div>
+
+      <div class="top-r" style="top: calc(10px + var(--safe-top));">
+        <button class="iconbtn" id="scan-help-btn" type="button" data-i18n-attr="aria-label:ui.help">
+          <svg class="i"><use href="#i-help" /></svg>
+        </button>
+      </div>
+
+      <div class="scrim-bottom" style="height: 36%;"></div>
+      <div class="bottom3">
+        <!-- espera -->
+        <div class="block fade-in" id="scan-block-search">
+          <h3 class="display" data-i18n="scan.title"></h3>
+          <p data-i18n="scan.sub"></p>
+        </div>
+        <div class="helpbox panel" id="scan-help" hidden>
+          <svg class="i"><use href="#i-info" /></svg>
+          <span data-i18n="scan.help"></span>
+        </div>
+
+        <!-- pieza reconocida (con posible carga del modelo) -->
+        <div class="block fade-in" id="scan-block-lock" hidden style="text-align:left">
+          <span class="tag" data-i18n="scan.found.tag"></span>
+          <h3 class="display" id="scan-piece-name"></h3>
+          <div class="bar indeterminate" id="scan-bar"><b></b></div>
+          <div class="bar-label"><span data-i18n="scan.preparing"></span><span></span></div>
+        </div>
+
+        <!-- desacople: anillo de 2.5 s -->
+        <div class="block fade-in" id="scan-block-decouple" hidden>
+          <div class="decouple-ring">
+            <svg viewBox="0 0 64 64" aria-hidden="true">
+              <circle class="track" cx="32" cy="32" r="27" />
+              <circle class="prog" id="decouple-ring-prog" cx="32" cy="32" r="27" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" />
+            </svg>
+          </div>
+          <h3 class="display" data-i18n="scan.appear" style="margin-top:10px"></h3>
+          <p data-i18n="scan.removeCedula"></p>
+        </div>
+
+        <!-- error de carga del modelo -->
+        <div class="scan-err panel" id="scan-error" hidden>
+          <span id="scan-error-text"></span>
+          <button type="button" id="scan-error-retry" data-i18n="scan.errorRetry"></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 4 · INTERACCIÓN ================= -->
+    <section id="s-interact" class="layer" data-voice="idle" data-gesture="" data-hand="no" data-sheet="closed" hidden>
+      <!-- Brackets de escala sobre el modelo 3D (posición por
+           proyección, por frame). -->
+      <div id="obj-overlay" aria-hidden="true">
+        <div class="brk"><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div id="scale-chip" hidden>1.0×</div>
+
+      <div class="title-chip panel dimmable">
+        <div class="display" id="piece-name"></div>
+        <small id="piece-inv"></small>
+      </div>
+      <div class="top-r dimmable">
+        <button class="iconbtn" id="rescan-btn" type="button" data-i18n-attr="aria-label:ui.rescan">
+          <svg class="i"><use href="#i-refresh" /></svg>
+        </button>
+        <button class="iconbtn" id="gesture-help-btn" type="button" data-i18n-attr="aria-label:ui.helpGestures">
+          <svg class="i"><use href="#i-help" /></svg>
+        </button>
+      </div>
+
+      <!-- Rescate "Traer al frente": solo aparece cuando el centro de la
+           pieza sale del viewport (ui.updateObjectOverlay). -->
+      <button class="panel recenter dimmable" id="recenter-btn" type="button" hidden>
+        <svg class="i" aria-hidden="true"><use href="#i-center" /></svg>
+        <span data-i18n="ui.recenter"></span>
+      </button>
+
+      <!-- Confirmación de rescan: el primer toque la arma; el segundo
+           confirma. Anclada a su gatillo, se desarma a los 4s. -->
+      <div class="panel confirm-pop" id="rescan-confirm" hidden>
+        <p class="msg" data-i18n="ui.rescanConfirm"></p>
+        <div class="row">
+          <button class="btn primary" id="rescan-confirm-yes" type="button" data-i18n="ui.rescan"></button>
+          <button class="btn ghost" id="rescan-confirm-no" type="button" data-i18n="ui.cancel"></button>
+        </div>
+      </div>
+
+      <div class="panel" id="help-panel" hidden>
+        <h4 data-i18n="help.title"></h4>
+        <p data-i18n="help.gestures"></p>
+        <p data-i18n="help.recalibrate" style="margin-bottom:0"></p>
+        <button class="linkbtn" id="recalibrate-btn" type="button" data-i18n="ui.recalibrate"></button>
+      </div>
+
+      <div class="rail panel dimmable" role="group" aria-label="" data-i18n-attr="aria-label:gesture.rail">
+        <span class="hd" title=""></span>
+        <span class="g" data-g="move" role="img" aria-pressed="false" data-i18n-attr="title:gesture.move,aria-label:gesture.move"><svg class="i"><use href="#i-move" /></svg></span>
+        <span class="g" data-g="rotateY" role="img" aria-pressed="false" data-i18n-attr="title:gesture.rotateY,aria-label:gesture.rotateY"><svg class="i"><use href="#i-roty" /></svg></span>
+        <span class="g" data-g="rotateX" role="img" aria-pressed="false" data-i18n-attr="title:gesture.rotateX,aria-label:gesture.rotateX"><svg class="i"><use href="#i-rotx" /></svg></span>
+        <span class="g" data-g="scale" role="img" aria-pressed="false" data-i18n-attr="title:gesture.scale,aria-label:gesture.scale"><svg class="i"><use href="#i-scale" /></svg></span>
+      </div>
+
+      <div class="chips dimmable" id="suggest-chips" role="group"></div>
+
+      <div class="caption panel" id="caption" hidden role="log" aria-live="polite" data-i18n-attr="aria-label:caption.aria">
+        <p class="you" id="caption-you"></p>
+        <p class="ai" id="caption-ai"></p>
+      </div>
+
+      <!-- Errores de voz con diagnóstico: misma franja que los
+           subtítulos, con causa y recuperación. role="alert": un error
+           se anuncia, no espera su turno. -->
+      <div class="caption panel err" id="voice-error" hidden role="alert">
+        <p class="msg" id="voice-error-text"></p>
+        <button class="linkbtn" id="voice-error-howto" type="button" data-i18n="mic.howto" hidden></button>
+        <p class="howto-text" id="voice-error-howto-text" data-i18n="mic.howtoText" hidden></p>
+      </div>
+
+      <div class="kb-bar" id="kb-bar" hidden>
+        <input type="text" id="kb-input" enterkeyhint="send" data-i18n-attr="placeholder:keyboard.placeholder" />
+        <button type="button" id="kb-send" data-i18n-attr="aria-label:keyboard.send"><svg class="i"><use href="#i-send" /></svg></button>
+      </div>
+
+      <div class="ctrl">
+        <button class="iconbtn dimmable" id="btn-keyboard" type="button" data-i18n-attr="aria-label:ui.keyboard">
+          <svg class="i"><use href="#i-keyboard" /></svg>
+        </button>
+        <button class="ptt" id="talk-btn" type="button" data-i18n-attr="aria-label:ptt.aria">
+          <span id="ptt-idle"><svg class="i"><use href="#i-mic" /></svg></span>
+          <span class="wave" id="ptt-wave" hidden><i></i><i></i><i></i><i></i><i></i></span>
+          <svg class="spin" id="ptt-spin" viewBox="0 0 34 34" hidden aria-hidden="true">
+            <circle cx="17" cy="17" r="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-dasharray="20 62" />
+          </svg>
+        </button>
+        <button class="iconbtn dimmable" id="btn-sheet" type="button" data-i18n-attr="aria-label:ui.sheet">
+          <svg class="i"><use href="#i-info" /></svg>
+        </button>
+      </div>
+      <p class="ptt-label" id="ptt-label" role="status" aria-live="polite" data-i18n="ptt.idle"></p>
+
+      <div class="sheet" id="piece-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheet-title" inert>
+        <div class="grab"></div>
+        <div class="hd2">
+          <div class="display" id="sheet-title"></div>
+          <button class="iconbtn" id="sheet-close" type="button" style="width:40px;height:40px" data-i18n-attr="aria-label:ui.closeSheet">
+            <svg class="i"><use href="#i-close" /></svg>
+          </button>
+        </div>
+        <dl>
+          <dt data-i18n="sheet.culture"></dt><dd id="sheet-culture"></dd>
+          <dt data-i18n="sheet.period"></dt><dd id="sheet-period"></dd>
+          <dt data-i18n="sheet.material"></dt><dd id="sheet-material"></dd>
+          <dt data-i18n="sheet.origin"></dt><dd id="sheet-origin"></dd>
+          <dt data-i18n="sheet.inventory"></dt><dd id="sheet-inventory"></dd>
+        </dl>
+        <button class="btn primary" id="sheet-ask" type="button" data-i18n="ui.ask"></button>
+      </div>
+    </section>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,1306 @@
+/* ============================================================
+   WEBAR MUSEO — hoja de estilos del sistema de diseño
+   ============================================================
+   Capas fijas sobre el video de MindAR y el canvas de Three.js (#app):
+
+     #s-intro      z 60  Presentación (home / loading / error)
+     #s-calibrate  z 45  Calibración de la mano
+     #s-scan       z 35  Escaneo de marcador
+     #s-interact   z 25  Interacción con la pieza
+
+   Movimiento "Luz de vitrina" (tokens en styles/tokens.css, primitivas
+   en motion.js): los elementos se encienden, se dibujan o se posan.
+   Entrar lento (ease-reveal), salir rápido (ease-exit).
+   Rendimiento: solo opacity/transform en animaciones; sin
+   backdrop-filter ni box-shadow grandes. Excepción: los trazos SVG
+   (stroke-dashoffset), que ya eran la firma del proyecto.
+   Toda animación nueva se suma al bloque prefers-reduced-motion del final.
+   ============================================================ */
+
+@import './styles/tokens.css';
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--m-ink);
+  color: var(--m-bone);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.4;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  overscroll-behavior: none;
+}
+
+[hidden] { display: none !important; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  /* Sin espera de doble-tap-zoom: el toque dispara ya mismo.
+     El PTT lo pisa con touch-action: none (gesto sostenido propio). */
+  touch-action: manipulation;
+}
+
+/* El enfoque por teclado es obligatorio en todo lo interactivo. El
+   anillo se enciende en --dur-tap en vez de aparecer de golpe. */
+:focus-visible {
+  outline: 2px solid var(--m-accent);
+  outline-offset: 2px;
+  animation: focus-in var(--dur-tap) var(--ease-reveal);
+}
+@keyframes focus-in { from { outline-color: transparent; } }
+
+/* Contenedor de MindAR: video de cámara + canvas de three.js. */
+#app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+.layer { position: fixed; inset: 0; }
+
+/* ------------------------------------------------------------
+   Fundidos entre secciones y vistas internas (crossfade)
+   ------------------------------------------------------------
+   La saliente cae a tinta rápido (--dur-exit); la entrante se enciende
+   despacio (--dur-panel). [hidden] aplica display:none y cortaría la
+   transición: por eso la salida usa .fade-out y el hidden llega recién
+   al terminar (ui.js lee --dur-exit del token: ya no hay espejo manual).
+*/
+.layer, #s-intro .view {
+  transition: opacity var(--dur-panel) var(--ease-reveal);
+}
+#s-intro .view {
+  transition:
+    opacity var(--dur-panel) var(--ease-reveal),
+    transform var(--dur-panel) var(--ease-reveal);
+}
+.fade-out {
+  opacity: 0 !important;
+  transition: opacity var(--dur-exit) var(--ease-exit) !important;
+  pointer-events: none !important;
+}
+/* Las vistas internas del intro, además, bajan 8px al salir y suben al
+   entrar (fadeIn arranca en .fade-out y la retira un frame después). */
+#s-intro .view.fade-out {
+  transform: translateY(8px);
+  transition:
+    opacity var(--dur-exit) var(--ease-exit),
+    transform var(--dur-exit) var(--ease-exit) !important;
+}
+
+.display { font-family: var(--font-display); font-weight: 500; margin: 0; letter-spacing: -0.01em; }
+
+.micro {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--m-bone) 66%, transparent);
+  margin: 0;
+}
+
+svg.i { width: 22px; height: 22px; flex: none; }
+
+/* ---------- Componentes compartidos ---------- */
+
+/* Familia de presión: apretar es rápido (--dur-tap), soltar vuelve más
+   lento (--dur-release), asimétrico a propósito. Lista de propiedades
+   idéntica en reposo y en :active: la salida espeja la entrada. */
+.btn, .iconbtn, .chip, .pill, .linkbtn, .recenter, .scan-err button, .kb-bar button, .sheet .btn {
+  transition:
+    transform var(--dur-release) var(--ease-reveal),
+    background-color var(--dur-release) var(--ease-std),
+    border-color var(--dur-release) var(--ease-std),
+    color var(--dur-release) var(--ease-std),
+    opacity var(--dur-release) var(--ease-std);
+}
+.btn:active, .iconbtn:active, .chip:active, .pill:active, .recenter:active,
+.scan-err button:active, .kb-bar button:active {
+  transform: scale(0.96);
+  transition-duration: var(--dur-tap), var(--dur-release), var(--dur-release), var(--dur-release), var(--dur-release);
+}
+.linkbtn:active { opacity: 0.55; }
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  border-radius: 26px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.btn.primary {
+  position: relative;
+  overflow: hidden;
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+}
+.btn.ghost {
+  border: 1px solid color-mix(in srgb, var(--m-bone) 30%, transparent);
+  color: var(--m-bone);
+}
+/* Al confirmar "Comenzar" el botón se contrae mientras la vista se disuelve. */
+.btn.launching { transform: scale(0.94); pointer-events: none; }
+
+/* Sheen de latón: un destello que cruza UNA vez al aparecer. Solo en los
+   CTA de entrada (no en los botones de la ficha ni de los popovers). */
+#start-btn::after,
+#calibration-start-btn::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: 38%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--m-bone) 42%, transparent), transparent);
+  transform: translateX(-130%) skewX(-18deg);
+  animation: sheen 900ms var(--ease-reveal) 900ms both;
+}
+#calibration-start-btn::after { animation-delay: 260ms; }
+@keyframes sheen {
+  from { transform: translateX(-130%) skewX(-18deg); }
+  to { transform: translateX(340%) skewX(-18deg); }
+}
+
+/* Botón de texto con subrayado que se "dibuja" (scaleX) al aparecer. */
+.linkbtn {
+  position: relative;
+  min-height: 44px;
+  font-size: 13px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--m-bone) 78%, transparent);
+  padding: 0 8px;
+}
+.linkbtn::after {
+  content: "";
+  position: absolute;
+  left: 8px; right: 8px;
+  bottom: calc(50% - 12px);
+  height: 1px;
+  background: currentColor;
+  transform-origin: left center;
+  animation: underline-draw var(--dur-base) var(--ease-reveal) 200ms backwards;
+}
+@keyframes underline-draw { from { transform: scaleX(0); } }
+
+.iconbtn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--m-ink) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--m-bone) 18%, transparent);
+  color: var(--m-bone);
+}
+
+.panel {
+  background: color-mix(in srgb, var(--m-ink) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--m-bone) 15%, transparent);
+  border-radius: 16px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 18px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--m-bone);
+  border: 1px solid color-mix(in srgb, var(--m-bone) 24%, transparent);
+}
+.pill svg.i { width: 16px; height: 16px; }
+
+/* Oscurece la zona inferior del video para legibilidad de controles. */
+.scrim-bottom {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 52%;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--m-ink) 92%, transparent) 62%);
+}
+
+/* ------------------------------------------------------------
+   Utilidades de aparición (elementos que alternan [hidden])
+   ------------------------------------------------------------
+   Las animaciones reinician al volver de display:none: son la
+   herramienta correcta para "aparece cuando el estado lo pide", con
+   :not([hidden]) para no correrlas en el estado inicial oculto.
+   Los keyframes solo declaran la partida; el destino es el estilo
+   computado, así no pisan el transform propio del elemento. Se usa
+   fill 'backwards' (no 'both'): al terminar liberan el elemento y las
+   transiciones propias siguen mandando.
+*/
+@keyframes rise-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes pop-in { from { opacity: 0; transform: scale(0.92); } }
+@keyframes fade-from { from { opacity: 0; } }
+
+.fade-in:not([hidden]) { animation: rise-in var(--dur-base) var(--ease-reveal) backwards; }
+.pop-in:not([hidden]) { animation: pop-in var(--dur-base) var(--ease-reveal) backwards; }
+
+/* Trazo de check: el dash se hereda hasta el <path> dentro del <symbol>
+   (stroke-dasharray/offset son propiedades heredadas). 24 > largo real
+   del check (~19), así el trazo oculto no deja el punto del cap redondo. */
+@keyframes check-draw { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }
+
+/* ============================================================
+   1 · PRESENTACIÓN (#s-intro)
+   ============================================================ */
+
+#s-intro { z-index: 60; background: var(--m-ink); }
+
+/* La luz se enciende una sola vez y queda fija. */
+#s-intro .glow {
+  position: absolute; inset: 0;
+  background: radial-gradient(90% 46% at 50% 8%, color-mix(in srgb, var(--m-accent) 20%, transparent), transparent 70%);
+  pointer-events: none;
+  animation: fade-from var(--dur-draw) var(--ease-reveal) backwards;
+}
+
+#s-intro .topbar {
+  position: absolute;
+  left: 20px; right: 20px;
+  top: calc(14px + var(--safe-top));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.museum { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 600; }
+.museum .mark {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 500;
+  animation: mark-in var(--dur-base) var(--ease-reveal) 120ms backwards;
+}
+@keyframes mark-in { from { opacity: 0; transform: scale(0.9); } }
+
+#s-intro .view {
+  position: absolute;
+  left: 24px; right: 24px;
+  top: calc(64px + var(--safe-top));
+  bottom: calc(22px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  max-width: 420px;
+  margin: 0 auto;
+}
+#s-intro .view.center {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 14px;
+}
+
+/* Sello que se dibuja una sola vez: primero el marco (esquinas), luego
+   la vasija y, al cerrar el trazo, un destello único en el borde de la
+   boca. El marco usa un dash fijo (sus 4 subtrazos miden ~39 cada uno). */
+.sigil { width: 150px; height: 120px; align-self: center; margin-top: 6px; overflow: visible; }
+.sigil .corner {
+  stroke: color-mix(in srgb, var(--m-bone) 45%, transparent);
+  fill: none; stroke-width: 2; stroke-linecap: round;
+  stroke-dasharray: 50; stroke-dashoffset: 50;
+  animation: draw-frame 700ms var(--ease-reveal) 150ms forwards;
+}
+.sigil .draw {
+  stroke: var(--m-accent);
+  fill: none; stroke-width: 1.6; stroke-linecap: round;
+  stroke-dasharray: 1; stroke-dashoffset: 1;
+  animation: draw 1500ms ease-out 600ms forwards;
+}
+.sigil ellipse.draw {
+  animation:
+    draw 1500ms ease-out 600ms forwards,
+    rim-flash 800ms var(--ease-reveal) 2100ms;
+}
+@keyframes draw-frame { to { stroke-dashoffset: 0; } }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes rim-flash {
+  0%, 100% { stroke: var(--m-accent); stroke-width: 1.6; }
+  35% { stroke: var(--m-bone); stroke-width: 2.6; }
+}
+
+#s-intro h3.display { font-size: 27px; line-height: 1.1; margin: 16px 0 14px; text-align: center; }
+
+/* El home entra escalonado una sola vez, al cargar. Orden: marco y
+   vasija → título → pasos en cascada → CTA al final (con su sheen). */
+#intro-home .sigil { animation: rise-in var(--dur-panel) var(--ease-reveal) backwards; }
+#intro-home h3.display { animation: rise-in var(--dur-panel) var(--ease-reveal) var(--stagger) backwards; }
+#intro-home .steps { animation: none; }
+#intro-home .steps li {
+  animation: rise-in var(--dur-panel) var(--ease-reveal) calc(140ms + var(--si, 0) * var(--stagger)) backwards;
+}
+/* El anillo del icono escala de .9 a 1 y el icono se enciende al final. */
+#intro-home .steps .ico {
+  animation: ico-in 360ms var(--ease-reveal) calc(220ms + var(--si, 0) * var(--stagger)) backwards;
+}
+#intro-home .steps .ico svg {
+  animation: fade-from 280ms var(--ease-std) calc(420ms + var(--si, 0) * var(--stagger)) backwards;
+}
+@keyframes ico-in { from { opacity: 0; transform: scale(0.9); } }
+#intro-home .cta-zone { animation: rise-in var(--dur-panel) var(--ease-reveal) 420ms backwards; }
+#intro-home .micro { animation: fade-from var(--dur-panel) var(--ease-std) 760ms backwards; }
+
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.steps li { display: flex; align-items: center; gap: 12px; min-height: 40px; font-size: 14px; }
+.steps .ico {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--m-accent) 55%, transparent);
+  color: var(--m-accent);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.steps .ico svg.i { width: 19px; height: 19px; }
+
+.cta-zone { margin-top: auto; display: flex; flex-direction: column; gap: 12px; text-align: center; }
+
+/* Loading: anillo grande + checklist de hitos reales */
+.ring-big { width: 124px; height: 124px; position: relative; }
+.ring-big svg { width: 100%; height: 100%; }
+.ring-big .track { fill: none; stroke: color-mix(in srgb, var(--m-bone) 16%, transparent); stroke-width: 4; }
+/* El progreso lo fija JS por hito; esta transición convierte cada
+   salto de 33% en un tramo que se recorre (progreso real, no decorativo). */
+.ring-big .prog {
+  fill: none;
+  stroke: var(--m-accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--dur-panel) var(--ease-reveal);
+}
+.ring-big b {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  font-family: var(--font-display);
+  font-size: 28px; font-weight: 500;
+}
+
+#s-intro .display.sm { font-size: 22px; }
+
+.checks {
+  list-style: none;
+  padding: 0; margin: 4px 0 0;
+  display: flex; flex-direction: column; gap: 8px;
+  text-align: left; font-size: 14px;
+}
+.checks li { display: flex; align-items: center; gap: 10px; color: color-mix(in srgb, var(--m-bone) 62%, transparent); transition: color var(--dur-base) var(--ease-std); }
+.checks li .b {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  display: grid; place-items: center;
+  flex: none;
+  transition: background-color var(--dur-base) var(--ease-std), border-color var(--dur-base) var(--ease-std);
+}
+/* El check se dibuja (dashoffset 24 → 0) después de que el círculo
+   empieza a rellenarse. Nace sin trazo: en "doing" va solo el círculo. */
+.checks li .b svg {
+  display: block; width: 11px; height: 11px; margin: auto;
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  transition: stroke-dashoffset var(--dur-base) var(--ease-reveal) 100ms;
+}
+.checks li.done { color: var(--m-bone); }
+.checks li.done .b { background: var(--m-accent); border-color: var(--m-accent); color: var(--m-on-accent); }
+.checks li.done .b svg { stroke-dashoffset: 0; }
+.checks li.doing { color: var(--m-accent); }
+/* El círculo punteado gira muy lento: "algo está pasando". */
+.checks li.doing .b { border-style: dashed; animation: spin 3.6s linear infinite; }
+/* Hito "warn": resuelto con aviso. Check en hueso sin relleno de
+   acento y sin celebración: "terminó, con matiz". */
+.checks li.warn { color: color-mix(in srgb, var(--m-bone) 78%, transparent); }
+.checks li.warn .b { border-style: solid; }
+.checks li.warn .b svg { stroke-dashoffset: 0; }
+
+/* Error */
+.err-ico {
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  border: 1.5px solid var(--m-listen);
+  color: var(--m-listen);
+}
+.err-ico svg.i { width: 30px; height: 30px; }
+
+/* Título, cuerpo y botones entran en cascada tras el icono (el texto del
+   howto se anima por su cuenta con motion.reveal). */
+#intro-error:not([hidden]) > *:not(#error-howto-text):not(.err-ico) {
+  animation: rise-in var(--dur-base) var(--ease-reveal) backwards;
+}
+#intro-error > h3 { animation-delay: 120ms; }
+#intro-error > p#error-body { animation-delay: 180ms; }
+#intro-error > .stack { animation-delay: 240ms; }
+
+#s-intro .stack { display: flex; flex-direction: column; gap: 10px; width: 100%; margin-top: 6px; }
+#error-howto-text { font-size: 13px; margin: 0; color: color-mix(in srgb, var(--m-bone) 74%, transparent); max-width: 34ch; }
+
+/* ============================================================
+   2 · CALIBRACIÓN (#s-calibrate)
+   ============================================================ */
+
+#s-calibrate { z-index: 45; }
+
+/* Sin transición ni animación: su visibilidad cambia por frame de
+   detección; lo suave lo dan el anillo y el dim de la silueta. */
+.det-pill {
+  position: absolute;
+  top: calc(14px + var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--m-ink) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--m-bone) 18%, transparent);
+}
+.det-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--m-accent); }
+.det-pill.warn .dot { background: var(--m-listen); }
+
+.hand-stage {
+  position: absolute;
+  left: 50%; top: 42%;
+  width: 240px; height: 250px;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+}
+.hand-stage > * { grid-area: 1 / 1; }
+
+.hand-stage .ring { width: 240px; height: 240px; }
+.ring .track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--m-bone) 20%, transparent);
+  stroke-width: 3;
+  stroke-dasharray: 2 7;
+  stroke-linecap: round;
+}
+/* Progreso real del flujo: lineal, nunca con easing. */
+.ring .prog {
+  fill: none;
+  stroke: var(--m-accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: var(--off, 100);
+  transform: rotate(-90deg);
+  transform-origin: 120px 120px;
+}
+
+/* Siluetas guía apiladas: data-step (ui.js) decide cuál se ve, con
+   crossfade + settle de escala en vez de teleport. */
+.hand {
+  width: 118px; height: 154px;
+  overflow: visible;
+  opacity: 0;
+  transform: scale(0.97);
+  transition:
+    opacity var(--dur-base) var(--ease-std),
+    transform var(--dur-base) var(--ease-reveal);
+}
+#s-calibrate[data-step="fist"] #cal-hand-fist,
+#s-calibrate[data-step="open"] #cal-hand-open { opacity: 1; transform: none; }
+.hand .ghost { color: var(--m-bone); opacity: 0.16; transition: opacity var(--dur-base) var(--ease-std); }
+.hand .skel { color: var(--m-accent); }
+#s-calibrate[data-nohand="true"] .hand .ghost { opacity: 0.09; }
+
+/* Respiración lenta (±1.5%) mientras la silueta guía está activa: invita
+   a copiar el gesto sin pedir nada. Corre en el <use>, no en el <svg>,
+   para no pelear con el settle de escala del crossfade. */
+#s-calibrate[data-step="fist"] #cal-hand-fist .ghost,
+#s-calibrate[data-step="open"] #cal-hand-open .ghost {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: breathe-soft 4.2s ease-in-out infinite;
+}
+@keyframes breathe-soft {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.015); }
+}
+
+/* Final: el anillo se cierra, el círculo aparece y el check se dibuja. */
+.hand-stage .ok {
+  width: 88px; height: 88px;
+  border-radius: 50%;
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+  display: grid;
+  place-items: center;
+}
+.hand-stage .ok svg {
+  width: 44px; height: 44px;
+  stroke-dasharray: 24;
+  stroke-dashoffset: 0;
+}
+.hand-stage .ok:not([hidden]) svg {
+  animation: check-draw var(--dur-draw) var(--ease-reveal) 160ms backwards;
+}
+
+.hint-chip {
+  position: absolute;
+  left: 24px; right: 24px;
+  top: calc(42% + 150px);
+  padding: 10px 14px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.sheet-bottom {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 18px 22px calc(20px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.segs { display: flex; gap: 8px; width: 100%; margin-bottom: 14px; max-width: 340px; }
+.seg {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid color-mix(in srgb, var(--m-bone) 22%, transparent);
+  color: color-mix(in srgb, var(--m-bone) 60%, transparent);
+  transition: background-color var(--dur-quick) var(--ease-std), border-color var(--dur-quick) var(--ease-std), color var(--dur-quick) var(--ease-std);
+}
+/* El relleno de latón entra de izquierda a derecha (scaleX) al completar. */
+.seg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: color-mix(in srgb, var(--m-accent) 18%, transparent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform var(--dur-base) var(--ease-reveal);
+}
+.seg svg { width: 14px; height: 14px; display: none; }
+.seg.current { background: var(--m-bone); color: var(--m-ink); border-color: var(--m-bone); }
+.seg.done { border-color: var(--m-accent); color: var(--m-accent); }
+.seg.done::before { transform: scaleX(1); }
+.seg.done svg { display: block; }
+
+.sheet-bottom h3 { font-size: 25px; line-height: 1.1; transition: color var(--dur-base) var(--ease-std); }
+/* Calibración parcial: acento suave en el título, sin check ni celebración. */
+#s-calibrate[data-step="partial"] .sheet-bottom h3 { color: var(--m-accent); }
+.sheet-bottom p { margin: 6px 0 0; font-size: 14px; color: color-mix(in srgb, var(--m-bone) 74%, transparent); }
+.sheet-bottom .btn { max-width: 340px; margin-top: 12px; }
+.sheet-bottom .linkbtn { margin-top: 4px; }
+
+/* ============================================================
+   3 · ESCANEO (#s-scan)
+   ============================================================ */
+
+#s-scan { z-index: 35; }
+
+/* La retícula ya no anima width/height (layout): cada esquina se traslada
+   con transform. Al entrar llegan desde afuera y se posan; al reconocer
+   la pieza se cierran hacia el centro hasta el tamaño real de la cédula
+   (232×232 → 152×190). */
+.reticle {
+  position: absolute;
+  left: 50%; top: 46%;
+  width: 232px; height: 232px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.reticle .in { position: absolute; inset: 0; animation: breathe 3.6s ease-in-out infinite; }
+@keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.02); } }
+
+.reticle i {
+  position: absolute;
+  width: 30px; height: 30px;
+  border: 3px solid var(--m-bone);
+  transform: translate(var(--tx, 0px), var(--ty, 0px));
+  transition:
+    transform var(--dur-panel) var(--ease-reveal),
+    border-color var(--dur-base) var(--ease-std);
+  animation: corner-in var(--dur-panel) var(--ease-reveal) backwards;
+}
+@keyframes corner-in { from { opacity: 0; transform: translate(var(--ox, 0px), var(--oy, 0px)); } }
+.reticle i:nth-child(1) { left: 0; top: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 9px; --ox: -14px; --oy: -14px; }
+.reticle i:nth-child(2) { right: 0; top: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 9px; --ox: 14px; --oy: -14px; animation-delay: 40ms; }
+.reticle i:nth-child(3) { left: 0; bottom: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 9px; --ox: -14px; --oy: 14px; animation-delay: 80ms; }
+.reticle i:nth-child(4) { right: 0; bottom: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 9px; --ox: 14px; --oy: 14px; animation-delay: 120ms; }
+
+.scan-line {
+  position: absolute;
+  left: 8px; right: 8px; top: 0;
+  height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--m-accent), transparent);
+  animation: scan 2.8s ease-in-out infinite;
+}
+@keyframes scan {
+  0% { transform: translateY(6px); opacity: 0; }
+  15%, 85% { opacity: 1; }
+  100% { transform: translateY(224px); opacity: 0; }
+}
+
+/* Estado lock: las esquinas se cierran sobre el marcador. */
+#s-scan[data-state="lock"] .reticle i:nth-child(1),
+#s-scan[data-state="decouple"] .reticle i:nth-child(1) { --tx: 40px; --ty: 21px; }
+#s-scan[data-state="lock"] .reticle i:nth-child(2),
+#s-scan[data-state="decouple"] .reticle i:nth-child(2) { --tx: -40px; --ty: 21px; }
+#s-scan[data-state="lock"] .reticle i:nth-child(3),
+#s-scan[data-state="decouple"] .reticle i:nth-child(3) { --tx: 40px; --ty: -21px; }
+#s-scan[data-state="lock"] .reticle i:nth-child(4),
+#s-scan[data-state="decouple"] .reticle i:nth-child(4) { --tx: -40px; --ty: -21px; }
+/* Latido único de 380ms al fijar: confirmación de pieza reconocida,
+   no es un loop. */
+#s-scan[data-state="lock"] .reticle .in { animation: lock-pulse 380ms var(--ease-reveal); }
+#s-scan[data-state="decouple"] .reticle .in { animation: none; }
+@keyframes lock-pulse {
+  0% { transform: scale(1); }
+  45% { transform: scale(0.955); }
+  100% { transform: scale(1); }
+}
+#s-scan[data-state="lock"] .reticle i,
+#s-scan[data-state="decouple"] .reticle i { border-color: var(--m-accent); }
+#s-scan[data-state="lock"] .scan-line,
+#s-scan[data-state="decouple"] .scan-line { display: none; }
+
+.bottom3 {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 0 20px calc(26px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 420px;
+  margin: 0 auto;
+  width: 100%;
+}
+.bottom3 .block { text-align: center; }
+.bottom3 h3 { font-size: 25px; line-height: 1.1; }
+.bottom3 .block p { margin: 6px 0 0; font-size: 14px; color: color-mix(in srgb, var(--m-bone) 74%, transparent); }
+
+.helpbox { display: flex; gap: 10px; padding: 12px 14px; align-items: flex-start; font-size: 13px; }
+.helpbox svg.i { width: 20px; height: 20px; color: var(--m-accent); margin-top: 1px; flex: none; }
+
+/* La etiqueta entra 60ms después del bloque que la contiene. */
+.tag {
+  display: inline-block; font-size: 13px; font-weight: 500; color: var(--m-accent); margin-bottom: 4px;
+  animation: fade-from var(--dur-base) var(--ease-std) var(--stagger) backwards;
+}
+
+/* Barra de carga en puro transform: `indet` barre un segmento del 40%
+   con translateX; `done` despliega el tramo completo con scaleX y un
+   brillo cruza una sola vez. */
+.bar { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--m-bone) 18%, transparent); overflow: hidden; margin-top: 12px; }
+.bar b {
+  position: relative;
+  overflow: hidden;
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--m-accent);
+  border-radius: 3px;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform var(--dur-base) var(--ease-reveal);
+}
+.bar.indeterminate b { width: 40%; transform: none; animation: indet 1.15s ease-in-out infinite; }
+@keyframes indet {
+  0% { transform: translateX(-110%); }
+  50% { transform: translateX(160%); }
+  100% { transform: translateX(-110%); }
+}
+.bar.done b { transform: scaleX(1); }
+.bar.done b::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--m-bone) 55%, transparent), transparent);
+  animation: bar-sheen 700ms var(--ease-reveal) 120ms both;
+}
+@keyframes bar-sheen {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(300%); }
+}
+.bar-label { display: flex; justify-content: space-between; font-size: 12px; margin-top: 8px; color: color-mix(in srgb, var(--m-bone) 70%, transparent); }
+
+/* Anillo de espera durante el desacople (lo llena ui.scan.decouple;
+   lineal y honesto: dura CENTER_DELAY_MS + CENTER_ANIMATION_MS). */
+.decouple-ring { width: 64px; height: 64px; margin: 0 auto; }
+.decouple-ring svg { width: 100%; height: 100%; }
+.decouple-ring .track { fill: none; stroke: color-mix(in srgb, var(--m-bone) 20%, transparent); stroke-width: 3.5; }
+.decouple-ring .prog {
+  fill: none; stroke: var(--m-accent); stroke-width: 3.5; stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  transform: rotate(-90deg);
+  transform-origin: 32px 32px;
+}
+
+.scan-err {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+.scan-err button {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* ============================================================
+   4 · INTERACCIÓN (#s-interact)
+   ============================================================ */
+
+#s-interact { z-index: 25; }
+
+/* Entrada coreografiada: la dispara el final del glide de centrado.
+   Un protagonista por momento, cada control desde su lado:
+   title-chip (izq.) → botones (der., 60ms) → riel (der., 120ms, con
+   destello secuencial de sus iconos) → chips en abanico (stagger JS) →
+   controles (280ms) → rótulo (350ms). */
+@keyframes enter-left { from { opacity: 0; transform: translateX(-12px); } }
+@keyframes enter-right { from { opacity: 0; transform: translateX(12px); } }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+@keyframes g-flash {
+  from { opacity: 0.15; transform: scale(0.8); }
+  55% { color: var(--m-accent); transform: scale(1.12); }
+}
+#s-interact.entering .title-chip { animation: enter-left var(--dur-panel) var(--ease-reveal) backwards; }
+#s-interact.entering .top-r { animation: enter-right var(--dur-panel) var(--ease-reveal) 60ms backwards; }
+#s-interact.entering .rail { animation: enter-right var(--dur-panel) var(--ease-reveal) 120ms backwards; }
+#s-interact.entering .rail .g {
+  animation: g-flash 420ms var(--ease-reveal) calc(320ms + var(--gi, 0) * 70ms) backwards;
+}
+.rail .g:nth-child(2) { --gi: 0; }
+.rail .g:nth-child(3) { --gi: 1; }
+.rail .g:nth-child(4) { --gi: 2; }
+.rail .g:nth-child(5) { --gi: 3; }
+#s-interact.entering .ctrl { animation: rise var(--dur-panel) var(--ease-reveal) 280ms backwards; }
+#s-interact.entering .ptt-label { animation: rise var(--dur-panel) var(--ease-reveal) 350ms backwards; }
+
+/* La interfaz se atenúa tras unos segundos sin interacción. */
+#s-interact .dimmable { transition: opacity var(--dur-panel) var(--ease-std); }
+#s-interact.dim .dimmable { opacity: 0.25; }
+
+/* Overlay decorativo sobre el modelo 3D (ui.js lo posiciona por
+   proyección). Con la ficha abierta sube y se encoge junto a la pieza
+   (misma curva y duración que la ficha). */
+#obj-overlay {
+  position: absolute;
+  width: 200px; height: 230px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  left: 50%; top: 50%;
+  transition: transform var(--dur-panel) var(--ease-drawer);
+}
+#s-interact[data-sheet="open"] #obj-overlay { transform: translate(-50%, -50%) translateY(-118px) scale(0.68); }
+#obj-overlay .brk { position: absolute; inset: 6px 0; opacity: 0; transition: opacity var(--dur-quick) var(--ease-std); }
+#obj-overlay .brk i {
+  position: absolute; width: 22px; height: 22px; border: 2px solid var(--m-accent);
+  transition: transform var(--dur-base) var(--ease-reveal);
+}
+#obj-overlay .brk i:nth-child(1) { left: 0; top: 0; border-right: 0; border-bottom: 0; transform: translate(6px, 6px); }
+#obj-overlay .brk i:nth-child(2) { right: 0; top: 0; border-left: 0; border-bottom: 0; transform: translate(-6px, 6px); }
+#obj-overlay .brk i:nth-child(3) { left: 0; bottom: 0; border-right: 0; border-top: 0; transform: translate(6px, -6px); }
+#obj-overlay .brk i:nth-child(4) { right: 0; bottom: 0; border-left: 0; border-top: 0; transform: translate(-6px, -6px); }
+/* En el gesto de escala las esquinas se abren hacia afuera. */
+#s-interact[data-gesture="scale"] #obj-overlay .brk { opacity: 1; }
+#s-interact[data-gesture="scale"] #obj-overlay .brk i { transform: none; }
+
+#scale-chip {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, 0);
+  padding: 5px 12px;
+  border-radius: 14px;
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+  font-weight: 700;
+  font-size: 14px;
+  /* Anclado por abajo, justo encima de las preguntas sugeridas. */
+  bottom: calc(228px + var(--safe-bottom));
+  pointer-events: none;
+  z-index: 7;
+  /* El corrimiento al abrir subtítulos es transform: compositor, no
+     layout. */
+  transition: transform var(--dur-base) var(--ease-std);
+}
+/* Con subtítulos visibles, el chip sube por encima de su franja. */
+#s-interact[data-caption="open"] #scale-chip { transform: translate(-50%, -50px); }
+/* Aparece al entrar al gesto de escala. El multiplicador lo actualiza
+   el render loop por frame, sin animación (dato, no decoración). */
+#scale-chip:not([hidden]) { animation: chip-pop 240ms var(--ease-reveal); }
+@keyframes chip-pop { from { opacity: 0; transform: translate(-50%, 8px); } }
+
+
+.title-chip { position: absolute; left: 14px; top: calc(12px + var(--safe-top)); max-width: 200px; padding: 8px 14px; z-index: 6; }
+.title-chip .display { font-size: 18px; line-height: 1.15; }
+.title-chip small { display: block; font-size: 12px; color: color-mix(in srgb, var(--m-bone) 62%, transparent); }
+
+.top-r { position: absolute; right: 14px; top: calc(10px + var(--safe-top)); display: flex; gap: 14px; z-index: 6; }
+
+/* Riel de gestos */
+.rail {
+  position: absolute;
+  right: 14px; top: 32.5%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 6px;
+  border-radius: 24px;
+  z-index: 6;
+}
+.rail .g {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  color: color-mix(in srgb, var(--m-bone) 60%, transparent);
+  transition: background-color var(--dur-quick) var(--ease-std), color var(--dur-quick) var(--ease-std);
+}
+.rail .g svg { width: 20px; height: 20px; }
+.rail .hd {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--m-bone) 30%, transparent);
+  margin: 2px 0 4px;
+  transition: background-color var(--dur-quick) var(--ease-std);
+}
+/* El punto se enciende al detectar la mano (la primera vez, ui.js además
+   le da un pulso). */
+#s-interact[data-hand="yes"] .rail .hd { background: var(--m-accent); }
+/* Gesto reconocido: el ícono activo hace una expansión única y corta. */
+.rail .g.active { background: var(--m-accent); color: var(--m-on-accent); animation: g-pop 220ms var(--ease-reveal); }
+@keyframes g-pop { from { transform: scale(0.82); } }
+
+/* Con la ficha abierta los gestos están pausados: el riel se retira
+   (opacity + transform) y vuelve al cerrarla. Va DESPUÉS de .dimmable y
+   con su misma especificidad, así que le gana también cuando la UI está
+   atenuada por inactividad. */
+#s-interact .rail {
+  transition:
+    opacity var(--dur-panel) var(--ease-std),
+    transform var(--dur-panel) var(--ease-drawer);
+}
+#s-interact[data-sheet="open"] .rail {
+  opacity: 0;
+  transform: translateX(14px);
+  pointer-events: none;
+}
+
+/* Panel de ayuda de gestos + recalibración. Nace de su gatillo (esquina
+   superior derecha): escala .96 → 1 desde ahí (motion.reveal origin). */
+#help-panel {
+  position: absolute;
+  right: 14px;
+  top: calc(75px + var(--safe-top));
+  width: min(280px, calc(100vw - 28px));
+  padding: 14px 16px;
+  z-index: 8;
+  font-size: 13px;
+  transform-origin: 100% 0;
+}
+#help-panel h4 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+#help-panel p { margin: 0 0 8px; color: color-mix(in srgb, var(--m-bone) 74%, transparent); line-height: 1.5; }
+#help-panel .linkbtn { padding: 0; min-height: 32px; }
+#help-panel .linkbtn::after { left: 0; right: 0; bottom: calc(50% - 10px); }
+
+/* Confirmación de rescan: mismo popover anclado al gatillo, con la
+   decisión explícita adentro. Una línea de latón se consume durante la
+   ventana de armado (--confirm-ms la fija ui.js: misma fuente que el
+   desarme por timer). */
+.confirm-pop {
+  position: absolute;
+  right: 14px;
+  top: calc(75px + var(--safe-top));
+  width: min(280px, calc(100vw - 28px));
+  padding: 14px 16px 24px;
+  z-index: 8;
+  transform-origin: 100% 0;
+}
+.confirm-pop::after {
+  content: "";
+  position: absolute;
+  left: 16px; right: 16px;
+  bottom: 10px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--m-accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+.confirm-pop.armed::after { animation: consume var(--confirm-ms, 4000ms) linear forwards; }
+@keyframes consume { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.confirm-pop .msg { margin: 0 0 12px; font-size: 13px; line-height: 1.5; color: color-mix(in srgb, var(--m-bone) 74%, transparent); }
+.confirm-pop .row { display: flex; gap: 8px; }
+.confirm-pop .btn { flex: 1; min-height: 42px; font-size: 13px; }
+
+/* Rescate "Traer al frente": aparece arriba centrado, deslizándose desde
+   el borde por el que se perdió la pieza (la dirección la decide
+   ui.updateObjectOverlay). Centrado con margin auto (no translateX):
+   reveal/conceal animan transform y no deben pelear con la base. */
+.recenter {
+  position: absolute;
+  left: 0; right: 0;
+  margin: 0 auto;
+  width: fit-content;
+  top: calc(75px + var(--safe-top));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 8;
+}
+.recenter svg.i { width: 16px; height: 16px; }
+
+/* Preguntas sugeridas. La entrada en abanico la hace motion.stagger. */
+.chips {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: calc(150px + var(--safe-bottom));
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 0 14px;
+  scrollbar-width: none;
+  z-index: 5;
+}
+.chips::-webkit-scrollbar { display: none; }
+.chip {
+  flex: none;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--m-bone);
+  background: color-mix(in srgb, var(--m-ink) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--m-bone) 22%, transparent);
+}
+
+/* Subtítulos en vivo */
+.caption {
+  position: absolute;
+  left: 14px; right: 14px;
+  bottom: calc(150px + var(--safe-bottom));
+  padding: 10px 14px;
+  z-index: 5;
+}
+.caption .you { margin: 0 0 4px; font-size: 12px; color: color-mix(in srgb, var(--m-bone) 60%, transparent); }
+/* Respuestas largas: scroll interno a ~5 líneas visibles; el
+   auto-scroll durante el streaming lo hace ui.js. */
+.caption .ai {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  max-height: calc(1.4em * 3);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--m-bone) 35%, transparent) transparent;
+}
+.caption .ai::-webkit-scrollbar { width: 3px; }
+.caption .ai::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--m-bone) 35%, transparent); border-radius: 2px; }
+.caption .caret { display: inline-block; width: 2px; height: 12px; background: var(--m-listen); vertical-align: -2px; margin-left: 2px; }
+
+/* Errores de voz con diagnóstico: misma franja que los subtítulos —
+   el error es parte de la conversación, con causa + howto expandible.
+   Entra con un tinte --m-listen en el borde (una sola vez) y un nudge
+   (ui.js): matiz, no alarma. */
+.caption.err:not([hidden]) { animation: err-tint 900ms var(--ease-reveal); }
+@keyframes err-tint { from { border-color: var(--m-listen); } }
+.caption.err .msg { margin: 0; font-size: 14px; line-height: 1.45; }
+.caption.err .linkbtn { margin: 10px 0 0; font-size: 12px; }
+.caption.err .howto-text {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--m-bone) 62%, transparent);
+}
+
+/* Puntos de "pensando": respiración, indicación de estado.
+   Se dibujan con un pseudo-elemento en vez de con HTML inyectado: el texto
+   del elemento sigue siendo "Pensando…" (lo que anuncia el lector de
+   pantalla) y no hay ningún innerHTML en el renderizado de subtítulos. */
+.caption .ai.thinking::after {
+  content: '';
+  display: inline-block;
+  width: 4px; height: 4px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--m-accent);
+  vertical-align: middle;
+  animation: dot-breathe 1.15s var(--ease-std) infinite;
+}
+@keyframes dot-breathe { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+/* Campo de texto alternativo */
+.kb-bar {
+  position: absolute;
+  left: 14px; right: 14px;
+  bottom: calc(112px + var(--safe-bottom));
+  display: flex;
+  gap: 8px;
+  z-index: 6;
+}
+.kb-bar input {
+  flex: 1;
+  min-height: 46px;
+  border-radius: 23px;
+  border: 1px solid color-mix(in srgb, var(--m-bone) 24%, transparent);
+  background: color-mix(in srgb, var(--m-ink) 88%, transparent);
+  color: var(--m-bone);
+  font: inherit;
+  /* 16px mínimo: iOS Safari hace zoom irreversible al enfocar inputs
+     con fuente menor. */
+  font-size: 16px;
+  padding: 0 16px;
+}
+.kb-bar input:focus-visible { outline-offset: 0; }
+.kb-bar button {
+  min-width: 46px;
+  min-height: 46px;
+  border-radius: 50%;
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+  display: grid;
+  place-items: center;
+}
+.kb-bar button svg.i { width: 20px; height: 20px; }
+
+/* Fila de controles: teclado / hablar / ficha */
+.ctrl {
+  position: absolute;
+  left: 0; right: 0;
+  /* Aire entre el botón walkie-talkie y su rótulo. */
+  bottom: calc(50px + var(--safe-bottom));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 26px;
+  z-index: 6;
+}
+
+.ptt {
+  position: relative;
+  width: 76px; height: 76px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--m-ink);
+  border: 2px solid var(--m-bone);
+  color: var(--m-bone);
+  /* Control más usado de la app: estados con transform y color, sin
+     sombras ni filtros. */
+  transition:
+    transform var(--dur-release) var(--ease-reveal),
+    background-color var(--dur-release) var(--ease-std),
+    border-color var(--dur-release) var(--ease-std),
+    color var(--dur-release) var(--ease-std);
+  touch-action: none;
+}
+/* Halo de escucha ::after (no box-shadow animado = paint por frame).
+   Late una vez al abrir el micrófono y queda de anillo estable. */
+.ptt::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--m-listen) 55%, transparent);
+  opacity: 0;
+  transform: scale(1.14);
+  pointer-events: none;
+  transition: opacity var(--dur-quick) var(--ease-std);
+}
+/* Sonar: un anillo que se expande y se desvanece una sola vez al abrir
+   el micrófono, mientras el halo estable queda detrás. */
+.ptt::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid var(--m-listen);
+  opacity: 0;
+  pointer-events: none;
+}
+#s-interact[data-voice="listening"] .ptt::after {
+  opacity: 1;
+  animation: halo 640ms var(--ease-reveal);
+}
+#s-interact[data-voice="listening"] .ptt::before { animation: sonar 720ms var(--ease-reveal); }
+/* Coach del CTA de la ficha (ui.coachPtt): el mismo anillo late una
+   vez sobre el PTT; es ::after, no transform del botón: no pelea con
+   la presión :active. */
+.ptt.coach::after {
+  opacity: 1;
+  animation: halo 640ms var(--ease-reveal);
+}
+@keyframes halo {
+  from { opacity: 0.6; transform: scale(1); }
+  to { opacity: 1; transform: scale(1.14); }
+}
+@keyframes sonar {
+  from { opacity: 0.55; transform: scale(1); }
+  to { opacity: 0; transform: scale(1.7); }
+}
+/* El ícono va en un <span> flex: como inline quedaba descentrado por
+   el "strut" de línea. */
+.ptt svg.i { width: 30px; height: 30px; display: block; }
+#ptt-idle { display: flex; align-items: center; justify-content: center; }
+
+#s-interact[data-voice="listening"] .ptt {
+  background: var(--m-listen);
+  border-color: var(--m-listen);
+  color: #fff;
+  transform: scale(1.07);
+}
+#s-interact[data-voice="connecting"] .ptt,
+#s-interact[data-voice="processing"] .ptt { border-color: var(--m-accent); color: var(--m-accent); }
+#s-interact[data-voice="speaking"] .ptt { background: var(--m-speak); border-color: var(--m-speak); color: var(--m-ink); }
+#s-interact[data-voice="error"] .ptt { border-color: color-mix(in srgb, var(--m-bone) 40%, transparent); color: color-mix(in srgb, var(--m-bone) 60%, transparent); }
+
+/* Onda de voz: altura fija, la animación es scaleY (compositor). */
+.wave { display: flex; align-items: center; gap: 3px; height: 30px; }
+.wave i {
+  width: 4px;
+  height: 28px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: scaleY(0.3);
+  animation: wave 1s ease-in-out infinite;
+}
+.wave i:nth-child(1) { animation-delay: 0s; }
+.wave i:nth-child(2) { animation-delay: 0.15s; }
+.wave i:nth-child(3) { animation-delay: 0.3s; }
+.wave i:nth-child(4) { animation-delay: 0.45s; }
+.wave i:nth-child(5) { animation-delay: 0.6s; }
+@keyframes wave { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+
+/* Arco que gira (conectando / procesando): en latón vía currentColor. */
+.spin { width: 34px; height: 34px; animation: spin 1.3s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.ptt-label {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: calc(10px + var(--safe-bottom));
+  text-align: center;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--m-bone) 78%, transparent);
+  pointer-events: none;
+}
+
+/* Ficha de la obra (bottom sheet). Sus filas de datos entran en
+   cascada de 40ms (motion.stagger, lo llama ui.setSheetOpen). */
+.sheet {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 62.5%;
+  background: var(--m-ink-2);
+  border-radius: 26px 26px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--m-bone) 16%, transparent);
+  padding: 10px 22px calc(22px + var(--safe-bottom));
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(0);
+  /* Curva de sheet (tira y frena): entrada sólida, no elástica. */
+  transition: transform var(--dur-panel) var(--ease-drawer);
+}
+.sheet[hidden] { display: flex !important; transform: translateY(105%); pointer-events: none; }
+.sheet .grab { width: 38px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--m-bone) 30%, transparent); margin: 0 auto 12px; }
+.sheet .hd2 { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.sheet .display { font-size: 26px; line-height: 1.1; }
+.sheet dl { margin: 14px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 9px 16px; font-size: 14px; }
+.sheet dt { color: color-mix(in srgb, var(--m-bone) 62%, transparent); }
+.sheet dd { margin: 0; }
+.sheet .btn { margin-top: auto; min-height: 48px; font-size: 15px; }
+
+/* ============================================================
+   prefers-reduced-motion
+   ------------------------------------------------------------
+   Menos y más suave, no cero: se conservan los fundidos de opacidad
+   (información de estado) y se elimina desplazamiento, escala, trazos,
+   loops, sheen e inercia. Las poses 3D y los tweens colaboran
+   (motion.js salta directo al destino).
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  /* Trazos: aparecen ya dibujados. */
+  .sigil .corner, .sigil .draw { animation: none; stroke-dashoffset: 0; }
+  .sigil ellipse.draw { animation: none; }
+  .hand-stage .ok:not([hidden]) svg { animation: none; }
+
+  /* Momentos de una sola vez: aparecen, sin coreografía. */
+  #intro-home .sigil, #intro-home h3.display,
+  #intro-home .steps li, #intro-home .steps .ico, #intro-home .steps .ico svg,
+  #intro-home .cta-zone, #intro-home .micro,
+  #s-intro .glow, .museum .mark,
+  #intro-error:not([hidden]) > *,
+  .fade-in:not([hidden]), .pop-in:not([hidden]), .tag,
+  .reticle i, .linkbtn::after, :focus-visible,
+  #start-btn::after, #calibration-start-btn::after,
+  .bar.done b::after,
+  #s-interact.entering *, #scale-chip:not([hidden]),
+  .rail .g.active, #s-scan[data-state="lock"] .reticle .in,
+  .ptt::after, .ptt::before, .caption.err:not([hidden]) { animation: none; }
+
+  /* Loops de ambiente: sin animación, estado fijo legible. */
+  .reticle .in, .scan-line, .wave i, .spin, .caption .ai.thinking::after,
+  .checks li.doing .b, #s-calibrate .hand .ghost { animation: none; }
+  .scan-line { display: none; }
+  .wave i { transform: scaleY(0.6); }
+  .caption .ai.thinking::after { opacity: 0.6; }
+  .ptt::after { opacity: 0; }
+  .confirm-pop.armed::after { animation: none; }
+
+  /* Las vistas del intro no viajan 8px: solo se funden. */
+  #s-intro .view.fade-out { transform: none; }
+
+  /* Paneles y overlays: cambio rápido, sin viaje */
+  .sheet, .reticle i, #obj-overlay, #obj-overlay .brk i, #scale-chip, #s-interact .rail,
+  .bar b, .ring-big .prog, .hand, #s-intro .view, .checks li .b svg, .seg::before { transition-duration: 100ms; }
+}

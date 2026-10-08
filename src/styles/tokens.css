@@ -1,0 +1,57 @@
+/* ============================================================
+   TOKENS — sistema de diseño WebAR para museos
+   ============================================================
+   theme.js aplica los tokens de marca (--m-*) por museo; acá solo van
+   los fallbacks (Latón) y las constantes que no dependen del museo.
+
+   MOVIMIENTO "Luz de vitrina": el latón es la luz, la tinta es la
+   oscuridad de la sala. Los elementos se encienden, se dibujan o se
+   posan; no saltan. Entrar lento, salir rápido.
+   motion.js lee estos tokens por JS (tokenMs / tokenEase): una sola
+   fuente de verdad, sin espejos manuales de duraciones.
+   ============================================================ */
+
+:root {
+  /* Fallback del tema por defecto (Latón) — theme.js los sobrescribe. */
+  --m-ink: #15110E;
+  --m-ink-2: #211B16;
+  --m-bone: #F2ECDF;
+  --m-accent: #C9A24B;
+  --m-on-accent: #15110E;
+  --m-listen: #E0574F;
+  --m-speak: #9DBB9E;
+
+  /* Tipografía */
+  --font-display: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-ui: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* ============================================================
+     MOTION — curvas
+     ============================================================ */
+
+  /* Toda entrada: llega ya visible y asienta. */
+  --ease-reveal: cubic-bezier(.22, 1, .36, 1);
+  /* Toda salida: se retira acelerando. */
+  --ease-exit: cubic-bezier(.55, 0, .7, .4);
+  /* Ficha y objetos acoplados a ella: curva tipo iOS, tira y frena. */
+  --ease-drawer: cubic-bezier(.32, .72, 0, 1);
+  /* Cambios de estado de color/borde (no son entradas ni salidas). */
+  --ease-std: cubic-bezier(.3, .8, .3, 1);
+
+  /* ============================================================
+     MOTION — duraciones
+     ============================================================ */
+
+  --dur-tap: 120ms;      /* presión de botones */
+  --dur-quick: 180ms;    /* cambios de estado chicos */
+  --dur-exit: 200ms;     /* toda salida (fundidos de sección, vistas) */
+  --dur-release: 280ms;  /* soltar un botón: más lento que apretar, a propósito */
+  --dur-base: 320ms;     /* entrada de elementos */
+  --dur-panel: 480ms;    /* paneles, secciones, ficha */
+  --dur-draw: 900ms;     /* trazos (anillos, checks, sello) */
+  --stagger: 60ms;       /* paso de las cascadas */
+
+  /* Zonas seguras (notch / barra de gestos) */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}

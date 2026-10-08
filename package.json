@@ -1,0 +1,27 @@
+{
+  "name": "tesis-v1-0",
+  "version": "1.0.0",
+  "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node tools/check-imports.mjs && node tools/check-token-handler.mjs",
+    "check": "node tools/check-imports.mjs",
+    "bump": "node scripts/bump.mjs"
+  },
+  "devDependencies": {
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "@google/genai": "^2.22.0",
+    "@mediapipe/tasks-vision": "^1.0.1",
+    "mind-ar": "^1.2.5",
+    "three": "^0.152.2"
+  }
+}
